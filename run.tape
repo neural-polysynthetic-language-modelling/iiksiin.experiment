@@ -1,45 +1,75 @@
 #!/usr/bin/env ducttape
 
-task iiksin
+global {
+
+}
+
+task iiksiin
    < python37="/usr/bin/python3.7"
   :: url="git@github.com:neural-polysynthetic-language-modelling/iiksiin.git"
    > autoencoder="autoencoder.py"
    > create_tensors="iiksiin.py"
    > train_tensors="morphnet/char2morph.py"
-   # > activate="bin/activate"
-   > activate="/opt/python/3.7/venv/pytorch0.4_cuda10.0/bin/activate"
+   > activate="bin/activate"
+  # > activate="/opt/python/3.7/venv/pytorch0.4_cuda10.0/bin/activate"
 {
 	git clone ${url} code
 	mv code/* .
-	# ${python37} -m venv .
+	${python37} -m venv .
 	source ${activate}
-	# pip install -r requirements.txt
+	pip install -r requirements.txt
 
 }
 
 
-task data
+task data_repo
   :: url="git@github.com:dowobeha/JSALT_NPLM_data.git"
-   > grn_bible="data/Other/grn/bible/guarani-bible-segmented.txt"
-   > bible_dir="data/Other/grn/bible"
+   > data_dir
 {
-	git clone ${url} data
+	git clone ${url} ${data_dir}
+	cd ${data_dir}
+	git annex enableremote kulusiq
+	git annex sync --content
+}
+
+task data
+   < data_dir=@data_repo
+  :: subdir=(Lang: grn=(Condition: mt="Other/grn/grn-spa/preprocess/output/all/fst"
+                                  all="Other/grn/grn-spa/preprocess/monolingual/all/fst"
+                                   nt="Other/grn/grn-spa/preprocess/monolingual/NT/fst")
+	           ess=(Condition: mt="Inuit-Yupik/ess/parallel_corpus/new_testament/preprocess/output/all/fst"
+	                          all="Inuit-Yupik/ess/parallel_corpus/new_testament/preprocess/monolingual/all/fst"
+                                   nt="Inuit-Yupik/ess/parallel_corpus/new_testament/preprocess/monolingual/NT/fst"))
+  :: suffix=(Lang: grn=(Condition: mt="tc.grn"
+                                  all="tok.grn"
+     				   nt="tok.grn")
+                   ess=(Condition: mt="tc.ess"
+		                  all="tok.ess"
+		  		   nt="tok.ess"))
+   > train
+   > dev
+   > test
+   > corpus_dir="."
+{
+	ln -s ${data_dir}/${subdir}/train.${suffix} ${train}
+	ln -s ${data_dir}/${subdir}/dev.${suffix}   ${dev}
+	ln -s ${data_dir}/${subdir}/test.${suffix}  ${test}
 }
 
 task create_tensors
-   < activate=@iiksin
-   < create_tensors=@iiksin
-   < grn_bible=@data
+   < activate=@iiksiin
+   < create_tensors=@iiksiin
+   > train=@data
    > out
-   :: morph_delimiter=">"
+  :: morph_delimiter=(Lang: grn=">" ess=">")
 {
 	source ${activate}
-	python3 ${create_tensors} -d "${morph_delimiter}" -i ${grn_bible} -o ${out}
+	python3 ${create_tensors} -d "${morph_delimiter}" -i ${train} -o ${out}
 }
 
 task autoencode
-  < autoencoder=@iiksin
-  < activate=@iiksin
+  < autoencoder=@iiksiin
+  < activate=@iiksiin
   < in=$out@create_tensors
  :: epochs=200
  :: batch_size=100
@@ -62,8 +92,8 @@ task autoencode
 }
 
 task morpheme_vectors
-  < autoencoder=@iiksin
-  < activate=@iiksin
+  < autoencoder=@iiksiin
+  < activate=@iiksiin
   < in=$out@create_tensors
   < model=$out@autoencode
  :: cuda_device="3"
@@ -81,21 +111,23 @@ task morpheme_vectors
 
 
 task train_tensors
-  < activate=@iiksin
-  < train_tensors=@iiksin
+  < activate=@iiksiin
+  < train_tensors=@iiksiin
   < tensors=$out@morpheme_vectors
-  < bible_dir=@data
+  < corpus_dir=@data
 {
 
 	source ${activate}
-	python3 ${train_tensors} -corpus_dir ${bible_dir} -tensor_file ${tensors} -batch_size 320
+	python3 ${train_tensors} -corpus_dir ${corpusdir} -tensor_file ${tensors} -batch_size 320
 
 }
 
 
 plan {
 
+  reach iiksiin
+  reach data_repo
 #     reach train_tensors
 #     reach morpheme_vectors
-      reach create_tensors
+#      reach create_tensors
 }
