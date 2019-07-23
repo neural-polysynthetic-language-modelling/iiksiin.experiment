@@ -1,7 +1,7 @@
 #!/usr/bin/env ducttape
 
 global {
-
+       JSALT_NLPM_data="/home/lanes/JSALT_NPLM_data"
 }
 
 task iiksiin
@@ -23,7 +23,7 @@ task iiksiin
 
 
 task data_repo
-   < JSALT_NLPM_data="/home/lanes/JSALT_NPLM_data"
+   < JSALT_NLPM_data=@
    > data_dir
 {
 #	git clone ${url} ${data_dir}
