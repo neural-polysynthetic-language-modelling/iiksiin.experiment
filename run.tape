@@ -23,13 +23,14 @@ task iiksiin
 
 
 task data_repo
-  :: url="git@github.com:dowobeha/JSALT_NPLM_data.git"
+   < JSALT_NLPM_data="/home/lanes/JSALT_NPLM_data"
    > data_dir
 {
-	git clone ${url} ${data_dir}
-	cd ${data_dir}
-	git annex enableremote kulusiq
-	git annex sync --content
+#	git clone ${url} ${data_dir}
+#	cd ${data_dir}
+#	git annex enableremote kulusiq
+#	git annex sync --content
+	ln -s ${JSALT_NLPM_data} ${data_dir}
 }
 
 task data
@@ -51,33 +52,47 @@ task data
    > test
    > corpus_dir="."
 {
-	ln -s ${data_dir}/${subdir}/train.${suffix} ${train}
-	ln -s ${data_dir}/${subdir}/dev.${suffix}   ${dev}
-	ln -s ${data_dir}/${subdir}/test.${suffix}  ${test}
+	ln --verbose -s ${data_dir}/${subdir}/train.${suffix} ${train}
+
+	if [[ -f "${data_dir}/${subdir}/dev.${suffix}" ]]; then
+		ln --verbose -s ${data_dir}/${subdir}/dev.${suffix}   ${dev}
+	elif [[ -f "${data_dir}/${subdir}/valid.${suffix}" ]]; then
+                ln --verbose -s ${data_dir}/${subdir}/valid.${suffix}   ${dev}
+	else
+		echo "Unable to find ${data_dir}/${subdir}/dev.${suffix} or ${data_dir}/${subdir}/valid.${suffix}"
+	fi
+	
+	ln --verbose -s ${data_dir}/${subdir}/test.${suffix}  ${test}
 }
 
 task create_tensors
    < activate=@iiksiin
    < create_tensors=@iiksiin
-   > train=@data
-   > out
+   < in=$train@data
+  :: max_characters=20
   :: morph_delimiter=(Lang: grn=">" ess=">")
+  :: blacklist_char=(Lang: grn="*" ess="*")
+   > out="train.tensors"
 {
 	source ${activate}
-	python3 ${create_tensors} -d "${morph_delimiter}" -i ${train} -o ${out}
+	python3 ${create_tensors} --morpheme_delimiter "${morph_delimiter}" \
+	                          --max_characters     "${max_characters}"  \
+				  --blacklist_char     "${blacklist_char}"  \
+				  --input_file         "${in}"              \
+				  --output_file        "${out}"       
 }
 
 task autoencode
   < autoencoder=@iiksiin
   < activate=@iiksiin
   < in=$out@create_tensors
- :: epochs=200
+ :: epochs=250
  :: batch_size=100
  :: num_hidden_layers=3
- :: hidden_layer_size=50
+ :: hidden_layer_size=(VectorSize: 64 128 256 512)
  :: learning_rate="0.01"
  :: cuda_device="3"
-  > out
+  > out="train.autoencoder.model"
 {
 	source ${activate}
 	python3 ${autoencoder} --mode              train                \
@@ -97,7 +112,7 @@ task morpheme_vectors
   < in=$out@create_tensors
   < model=$out@autoencode
  :: cuda_device="3"
-  > out
+  > out="train.vectors"
 {
 	source ${activate}
 	python3 ${autoencoder} --mode              t2v                  \
@@ -118,7 +133,7 @@ task train_tensors
 {
 
 	source ${activate}
-	python3 ${train_tensors} -corpus_dir ${corpusdir} -tensor_file ${tensors} -batch_size 320
+	python3 ${train_tensors} -corpus_dir ${corpus_dir} -tensor_file ${tensors} -batch_size 320
 
 }
 
@@ -127,7 +142,10 @@ plan {
 
   reach iiksiin
   reach data_repo
-#     reach train_tensors
+  reach data via (Lang: grn) * (Condition: *)
+  reach create_tensors via (Lang: grn) * (Condition: *)
+  reach autoencode, morpheme_vectors via (Lang: grn) * (Condition: *) * (VectorSize: 512)
+#  reach train_tensors
 #     reach morpheme_vectors
 #      reach create_tensors
 }
