@@ -8,6 +8,8 @@ global {
 task fst
   :: url="git@github.com:SaintLawrenceIslandYupik/finite_state_morphology.git"
    > analyzer="fst/lexicon/lexicon.py"
+   > extract_splits="fst/lexicon/extract-split-words.py"
+   > extract_analyses="fst/lexicon/extract-analyzed-words.py"
    > lexc="fst/ess.lexc"
    > s2u="fst/ess.fomabin"
    > i2u="fst/ess.underlying.fomabin"
@@ -120,10 +122,10 @@ task tokenize
 
 plan {
 
-     reach fst
-     reach iiksiin
-     reach tokenize via (Lang: ess) * (Condition: all nt)
-     reach analyze via (Lang: ess) * (Condition: all) * (Split: train)
+#     reach fst
+#     reach iiksiin
+#     reach tokenize via (Lang: ess) * (Condition: all nt)
+     reach split_words via (Lang: ess) * (Condition: all) * (Split: train dev)
 }
 
 
@@ -144,6 +146,14 @@ task analyze
 				--output ${out}
 }
 
+task split_words
+   < python37=@
+   < extract_splits=@fst
+   < in=$out@analyze
+   > out
+{
+	${python37} ${extract_splits} < ${in} > ${out}
+}
 
 #task data_repo
 #   < JSALT_NLPM_data=@
