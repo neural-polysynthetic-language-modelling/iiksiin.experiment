@@ -19,23 +19,29 @@ task fst
 	make ess.fomabin ess.underlying.fomabin
 }
 
-
-task iiksiin
+task venv
    < python37="/usr/bin/python3.7"
   :: url="git@github.com:neural-polysynthetic-language-modelling/iiksiin.git"
-   > alphabet="alphabet.py"
-   > autoencoder="autoencoder.py"
-   > create_tensors="iiksiin.py"
-   > char2morph="char2morph.py"
    > activate="bin/activate"
-  # > activate="/opt/python/3.7/venv/pytorch0.4_cuda10.0/bin/activate"
 {
-	git clone ${url} code
-	mv code/* .
+	git clone --depth 1 --single-branch --branch master ${url} code
+	mv code/requirements.txt .
 	${python37} -m venv .
 	source ${activate}
 	pip install -r requirements.txt
+}
 
+
+task iiksiin
+   < python37="/usr/bin/python3.7"
+   < activate=@venv
+  :: url="git@github.com:neural-polysynthetic-language-modelling/iiksiin.git"
+   > create_alphabet="code/alphabet.py"
+   > autoencoder="code/autoencoder.py"
+   > create_tensors="code/iiksiin.py"
+   > char2morph="code/char2morph.py"
+{
+	git clone --depth 1 --single-branch --branch master ${url} code
 }
 
 
@@ -120,15 +126,6 @@ task tokenize
 }
 
 
-plan {
-
-#     reach fst
-#     reach iiksiin
-#     reach tokenize via (Lang: ess) * (Condition: all nt)
-     reach split_words via (Lang: ess) * (Condition: all) * (Split: train dev)
-}
-
-
 task analyze
   < python37=@
   < analyzer=@fst
@@ -199,12 +196,44 @@ task split_words
 #}
 
 
+task alphabet
+   < activate=@venv
+   < create_alphabet=@iiksiin
+   < in=$out@split_words[Split:train]
+  :: lang=(Lang: ess)
+  :: morph_delimiter=(Lang: ess="^")
+  :: blacklist_char=(Lang: ess="*")
+   > out
+   > log
+{
+	source ${activate}
+	python3 ${create_alphabet} --description            "${lang}"            \
+	                           --morpheme_delimiter     "${morph_delimiter}" \
+				   --end_of_morpheme_symbol '\u0000'             \
+				   --input_file             "${in}"              \
+				   --blacklist_char         "${blacklist_char}"  \
+				   --output_file            "${out}"             \
+				   --log                    "${log}"
+}
+
+plan {
+
+#     reach fst
+#     reach iiksiin
+#     reach tokenize via (Lang: ess) * (Condition: all nt)
+     reach split_words via (Lang: ess) * (Condition: all) * (Split: train dev)
+
+     reach alphabet via (Lang: ess) * (Condition: all)
+
+}
+
+
 task create_tensors
-   < activate=@iiksiin
+   < activate=@venv
    < create_tensors=@iiksiin
    < in=$train@data
   :: max_characters=20
-  :: morph_delimiter=(Lang: ess=">")
+  :: morph_delimiter=(Lang: ess="^")
   :: blacklist_char=(Lang: ess="*")
    > out="train.tensors"
 {
@@ -218,7 +247,7 @@ task create_tensors
 
 task autoencode
   < autoencoder=@iiksiin
-  < activate=@iiksiin
+  < activate=@venv
   < in=$out@create_tensors
  :: epochs=250
  :: batch_size=100
@@ -242,7 +271,7 @@ task autoencode
 
 task morpheme_vectors
   < autoencoder=@iiksiin
-  < activate=@iiksiin
+  < activate=@venv
   < in=$out@create_tensors
   < model=$out@autoencode
  :: cuda_device="3"
@@ -259,7 +288,7 @@ task morpheme_vectors
 
 task validate_vectors
   < autoencoder=@iiksiin
-  < activate=@iiksiin
+  < activate=@venv
   < tensors=$out@create_tensors
   < vectors=$out@morpheme_vectors
   < model=$out@autoencode
@@ -278,7 +307,7 @@ task validate_vectors
 }
 
 task char2morph
-  < activate=@iiksiin
+  < activate=@venv
   < char2morph=@iiksiin
   < vectors=$out@morpheme_vectors
   < train=@data
