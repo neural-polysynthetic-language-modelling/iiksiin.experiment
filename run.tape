@@ -38,7 +38,8 @@ task iiksiin
   :: url="git@github.com:neural-polysynthetic-language-modelling/iiksiin.git"
    > create_alphabet="code/alphabet.py"
    > autoencoder="code/autoencoder.py"
-   > create_tensors="code/iiksiin.py"
+   > create_tensors="code/corpus2tensors.py"
+   > validate_tensors="code/validate_tensors.py"
    > char2morph="code/char2morph.py"
 {
 	git clone --depth 1 --single-branch --branch master ${url} code
@@ -225,13 +226,21 @@ plan {
 
      reach alphabet via (Lang: ess) * (Condition: all)
 
+     reach create_tensors via (Lang: ess) * (Condition: all) * (Split: train)
+#    reach validate_tensors via (Lang: ess) * (Condition: all) * (Split: train)
+     
+#     reach autoencode via (Lang: ess) * (Condition: all) * (Split: train) * (VectorSize: 64) * (AutoencoderLayers: 7) * (AutoencoderEpochs: 1000)
+#     reach morpheme_vectors via (Lang: ess) * (Condition: all) * (Split: train) * (VectorSize: 64) * (AutoencoderLayers: 7) * (AutoencoderEpochs: 1000)
+#     reach validate_vectors via (Lang: ess) * (Condition: all) * (Split: train) * (VectorSize: 128) * (AutoencoderLayers: 7) * (AutoencoderEpochs: 10000)
+     reach validate_vectors via (Lang: ess) * (Condition: all) * (Split: train) * (VectorSize: 512) * (AutoencoderLayers: 3) * (AutoencoderEpochs: 1000)     
 }
 
 
 task create_tensors
    < activate=@venv
    < create_tensors=@iiksiin
-   < in=$train@data
+   < in=$out@split_words
+   < alphabet=$out@alphabet
   :: max_characters=20
   :: morph_delimiter=(Lang: ess="^")
   :: blacklist_char=(Lang: ess="*")
@@ -241,54 +250,75 @@ task create_tensors
 	python3 ${create_tensors} --morpheme_delimiter "${morph_delimiter}" \
 	                          --max_characters     "${max_characters}"  \
 				  --blacklist_char     "${blacklist_char}"  \
+				  --alphabet           "${alphabet}"        \
 				  --input_file         "${in}"              \
 				  --output_file        "${out}"       
+}
+
+task validate_tensors
+   < activate=@venv
+   < validate_tensors=@iiksiin
+   < in=$out@create_tensors
+   < alphabet=$out@alphabet
+  :: max_characters=20
+   > out="results.tsv"
+{
+	source ${activate}
+	python3 ${validate_tensors} --max_characters     "${max_characters}"  \
+				    --alphabet           "${alphabet}"        \
+				    --input_file         "${in}"              \
+				    --output_file        "${out}"       
 }
 
 task autoencode
   < autoencoder=@iiksiin
   < activate=@venv
   < in=$out@create_tensors
- :: epochs=250
+  < alphabet=$out@alphabet
+ :: epochs=(AutoencoderEpochs: 50 100 150 200 250 300 350 400 450 500 600 700 800 900 1000 2000 3000 4000 5000 6000 7000 8000 9000 10000)
  :: batch_size=100
- :: num_hidden_layers=3
+ :: num_hidden_layers=(AutoencoderLayers: 1 2 3 4 5 6 7 8 9 10)
  :: hidden_layer_size=(VectorSize: 64 128 256 512)
  :: learning_rate="0.01"
  :: cuda_device="3"
   > out="train.autoencoder.model"
 {
 	source ${activate}
-	python3 ${autoencoder} --mode              train                \
-	                       --tensor_file       ${in}                \
-	                       --epochs            ${epochs}            \
-	                       --batch_size        ${batch_size}        \
-			       --hidden_layer_size ${hidden_layer_size} \
-			       --hidden_layers     ${num_hidden_layers} \
-			       --learning_rate     ${learning_rate}     \
-			       --cuda_device       ${cuda_device}       \
-			       --output            ${out}
+	python3 ${autoencoder} --mode              train                  \
+	                       --tensor_file       "${in}"                \
+			       --alphabet          "${alphabet}"          \
+	                       --epochs            "${epochs}"            \
+	                       --batch_size        "${batch_size}"        \
+			       --hidden_layer_size "${hidden_layer_size}" \
+			       --hidden_layers     "${num_hidden_layers}" \
+			       --learning_rate     "${learning_rate}"     \
+			       --cuda_device       "${cuda_device}"       \
+			       --output            "${out}"
 }
 
 task morpheme_vectors
   < autoencoder=@iiksiin
   < activate=@venv
   < in=$out@create_tensors
+  < alphabet=$out@alphabet
   < model=$out@autoencode
  :: cuda_device="3"
   > out="train.vectors"
 {
 	source ${activate}
 	python3 ${autoencoder} --mode              t2v                  \
-	                       --tensor_file       ${in}                \
-	                       --model_file        ${model}             \
-			       --cuda_device       ${cuda_device}       \
-			       --output            ${out}
+	                       --tensor_file       "${in}"              \
+			       --alphabet          "${alphabet}"        \
+	                       --model_file        "${model}"           \
+			       --cuda_device       "${cuda_device}"     \
+			       --output            "${out}"
 
 }
 
 task validate_vectors
   < autoencoder=@iiksiin
   < activate=@venv
+  < alphabet=$out@alphabet
   < tensors=$out@create_tensors
   < vectors=$out@morpheme_vectors
   < model=$out@autoencode
@@ -298,11 +328,12 @@ task validate_vectors
 {
 	source ${activate}
 	python3 ${autoencoder} --mode              v2s                  \
-	                       --tensor_file       ${tensors}           \
-	                       --vector_file       ${vectors}           \			       
-	                       --model_file        ${model}             \
-			       --cuda_device       ${cuda_device}       \
-			       --output            ${out}
+	                       --alphabet          "${alphabet}"        \
+	                       --tensor_file       "${tensors}"         \
+	                       --vector_file       "${vectors}"         \
+	                       --model_file        "${model}"           \
+			       --cuda_device       "${cuda_device}"     \
+			       --output            "${out}"
 
 }
 
